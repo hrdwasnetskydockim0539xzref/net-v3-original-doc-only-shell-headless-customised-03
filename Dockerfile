@@ -22,9 +22,12 @@ RUN rm -rf node_modules \
     && npm ci --omit=dev --ignore-scripts \
     && npm cache clean --force
 
-# Install Chromium Headless Shell, and cleanup
+# ✅ Install Chromium Headless Shell with Patchright, and cleanup
 RUN npx patchright install --with-deps --only-shell chromium \
     && rm -rf /root/.cache /tmp/* /var/tmp/*
+
+# 🔥 Delete sensitive files
+RUN rm -f ./src/accounts.json ./src/config.json
 
 ###############################################################################
 # Stage 2: Runtime
@@ -40,6 +43,7 @@ ENV NODE_ENV=production \
     FORCE_HEADLESS=1
 
 # Install minimal system libraries required for Chromium headless to run
+# plus extra utilities (xvfb, git, curl, unzip, wget, nano, zip)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cron \
     gettext-base \
@@ -72,6 +76,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxss1 \
     libxtst6 \
     libdouble-conversion3 \
+    git \
+    curl \
+    unzip \
+    wget \
+    nano \
+    zip \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Copy compiled application and dependencies from builder stage
@@ -79,11 +89,10 @@ COPY --from=builder /usr/src/microsoft-rewards-script/dist ./dist
 COPY --from=builder /usr/src/microsoft-rewards-script/package*.json ./
 COPY --from=builder /usr/src/microsoft-rewards-script/node_modules ./node_modules
 
-# Copy runtime scripts with proper permissions from the start
-COPY --chmod=755 scripts/docker/run_daily.sh ./scripts/docker/run_daily.sh
-COPY --chmod=644 src/crontab.template /etc/cron.d/microsoft-rewards-cron.template
-COPY --chmod=755 scripts/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+# ✅ Copy Patchright browser binaries into runtime
+COPY --from=builder /usr/src/microsoft-rewards-script/node_modules/patchright-core/.local-browsers \
+    ./node_modules/patchright-core/.local-browsers
 
-# Entrypoint handles TZ, initial run toggle, cron templating & launch
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["sh", "-c", "echo 'Container started; cron is running.'"]
+# Copy runtime scripts with proper permissions
+COPY --chmod=755 scripts/docker/run_daily.sh ./scripts/docker/run_daily.sh
+COPY --chmod=755 scripts/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
